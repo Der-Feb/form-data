@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   ScrollView,
   View,
@@ -13,10 +13,10 @@ import { Picker } from '@react-native-picker/picker';
 import Checkbox from 'expo-checkbox';
 import Slider from '@react-native-community/slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import SegmentedControl from '@react-native-segmented-control/segmented-control';
+import * as DocumentPicker from 'expo-document-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 
-const EXPERIENCE_LEVELS = ['Beginner', 'Intermediate', 'Advanced'];
-const SKILLS = ['JavaScript', 'Python', 'Design', 'Marketing'];
+const HOBBY_OPTIONS = ['Reading', 'Music', 'Sports', 'Travel'];
 
 export default function App() {
   // Text inputs
@@ -31,22 +31,25 @@ export default function App() {
   const [country, setCountry] = useState('rwanda');
   const [gender, setGender] = useState('');
   const [hobbies, setHobbies] = useState([]);
-  const [skills, setSkills] = useState([]);
-  const [experienceIndex, setExperienceIndex] = useState(0);
-  const [quantity, setQuantity] = useState(1);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [notifications, setNotifications] = useState(false);
 
-  // Slider and date
+  // Slider, date, time
   const [volume, setVolume] = useState(50);
   const [birthDate, setBirthDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [reminderTime, setReminderTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
 
+  // File and camera
+  const [file, setFile] = useState(null);
+  const [photo, setPhoto] = useState(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const cameraRef = useRef(null);
+  const [permission, requestPermission] = useCameraPermissions();
+
   function handleAgeChange(text) {
-    const cleanText = text.replace(/[^0-9]/g, '');
-    setAge(cleanText);
+    setAge(text.replace(/[^0-9]/g, ''));
   }
 
   function toggleHobby(hobby) {
@@ -57,12 +60,33 @@ export default function App() {
     );
   }
 
-  function toggleSkill(skill) {
-    setSkills((current) =>
-      current.includes(skill)
-        ? current.filter((item) => item !== skill)
-        : [...current, skill]
-    );
+  async function pickFile() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: '*/*',
+      copyToCacheDirectory: true,
+    });
+    if (!result.canceled) {
+      setFile(result.assets[0]);
+    }
+  }
+
+  async function openCamera() {
+    if (!permission || !permission.granted) {
+      const response = await requestPermission();
+      if (!response.granted) {
+        console.log('Camera permission denied');
+        return;
+      }
+    }
+    setShowCamera(true);
+  }
+
+  async function capturePhoto() {
+    if (cameraRef.current) {
+      const picture = await cameraRef.current.takePictureAsync();
+      setPhoto(picture);
+      setShowCamera(false);
+    }
   }
 
   const handleSubmit = () => {
@@ -76,14 +100,22 @@ export default function App() {
       country,
       gender,
       hobbies,
-      skills,
-      experience: EXPERIENCE_LEVELS[experienceIndex],
-      quantity,
       agreeTerms,
       notifications,
       volume: Math.round(volume),
       birthDate: birthDate.toDateString(),
       reminderTime: reminderTime.toLocaleTimeString(),
+      photo: photo
+        ? {
+          width: photo.width,
+          height: photo.height,
+          // on web the uri is a very long base64 string, so we shorten it for the log
+          uri: photo.uri.slice(0, 60) + '...',
+        }
+        : null,
+      file: file
+        ? { name: file.name, uri: file.uri, size: file.size, mimeType: file.mimeType }
+        : null,
     };
 
     console.log('Form submitted:', formData);
@@ -157,15 +189,6 @@ export default function App() {
           <Picker.Item label="Tanzania" value="tanzania" />
         </Picker>
 
-        <Text>Experience level</Text>
-        <SegmentedControl
-          values={EXPERIENCE_LEVELS}
-          selectedIndex={experienceIndex}
-          onChange={(event) =>
-            setExperienceIndex(event.nativeEvent.selectedSegmentIndex)
-          }
-        />
-
         <Text>Gender</Text>
         <Pressable onPress={() => setGender('male')}>
           <Text>{gender === 'male' ? '(●)' : '( )'} Male</Text>
@@ -178,7 +201,7 @@ export default function App() {
         </Pressable>
 
         <Text>Hobbies</Text>
-        {['Reading', 'Music', 'Sports', 'Travel'].map((hobby) => (
+        {HOBBY_OPTIONS.map((hobby) => (
           <View
             key={hobby}
             style={{ flexDirection: 'row', alignItems: 'center' }}
@@ -190,30 +213,6 @@ export default function App() {
             <Text> {hobby}</Text>
           </View>
         ))}
-
-        <Text>Skills</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-          {SKILLS.map((skill) => {
-            const selected = skills.includes(skill);
-            return (
-              <Pressable key={skill} onPress={() => toggleSkill(skill)}>
-                <Text>{selected ? `[x] ${skill}` : `[ ] ${skill}`}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Text>Quantity: {quantity}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Button
-            title="-"
-            onPress={() => setQuantity((current) => Math.max(0, current - 1))}
-          />
-          <Button
-            title="+"
-            onPress={() => setQuantity((current) => current + 1)}
-          />
-        </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Checkbox value={agreeTerms} onValueChange={setAgreeTerms} />
@@ -234,7 +233,6 @@ export default function App() {
         />
 
         <Text>Birth date: {birthDate.toDateString()}</Text>
-
         {Platform.OS === 'web' ? (
           React.createElement('input', {
             type: 'date',
@@ -264,7 +262,6 @@ export default function App() {
         )}
 
         <Text>Reminder time: {reminderTime.toLocaleTimeString()}</Text>
-
         {Platform.OS === 'web' ? (
           React.createElement('input', {
             type: 'time',
@@ -295,6 +292,26 @@ export default function App() {
             )}
           </>
         )}
+
+        <Text>Camera</Text>
+        {showCamera ? (
+          <>
+            <CameraView
+              ref={cameraRef}
+              style={{ width: '100%', height: 300 }}
+              facing="front"
+            />
+            <Button title="Capture" onPress={capturePhoto} />
+            <Button title="Close camera" onPress={() => setShowCamera(false)} />
+          </>
+        ) : (
+          <Button title="Open camera" onPress={openCamera} />
+        )}
+        {photo && <Text>Photo captured: {photo.width} x {photo.height}</Text>}
+
+        <Text>File</Text>
+        <Button title="Pick a file" onPress={pickFile} />
+        {file && <Text>Selected file: {file.name}</Text>}
 
         <Button title="Submit" onPress={handleSubmit} />
       </View>
